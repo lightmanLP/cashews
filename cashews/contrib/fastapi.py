@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from hashlib import blake2s
 from typing import Any
 
+from fastapi.responses import StreamingResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
@@ -180,7 +181,8 @@ class CacheEtagMiddleware(BaseHTTPMiddleware):
         if expire < 0:
             return None
         etag = _get_etag(_data)
-        await self._cache.set(self._get_etag_key(etag), True, expire=expire)
+        if etag is not None:
+            await self._cache.set(self._get_etag_key(etag), True, expire=expire)
         return etag
 
     def _get_etag_key(self, etag: str) -> str:
@@ -189,7 +191,13 @@ class CacheEtagMiddleware(BaseHTTPMiddleware):
 
 def _get_etag(cached_data: Any) -> str:
     if not isinstance(cached_data, bytes):
-        cached_data = cached_data.body if isinstance(cached_data, Response) else DEFAULT_PICKLER.dumps(cached_data)
+        if isinstance(cached_data, Response):
+            if isinstance(cached_data, StreamingResponse):
+                return None
+            else:
+                cached_data = cached_data.body
+        else:
+            cached_data = DEFAULT_PICKLER.dumps(cached_data)
     return blake2s(cached_data).hexdigest()
 
 
