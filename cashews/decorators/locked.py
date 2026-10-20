@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from cashews.backends.interface import _BackendInterface
 from cashews.key import get_cache_key, get_cache_key_template
+from cashews.serialize import is_streaming
 from cashews.ttl import ttl_to_seconds
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -94,17 +95,26 @@ def thunder_protection(
         _key_template = get_cache_key_template(func, key=key)
 
         def done_callback(_key: Key, _: asyncio.Task):
-            del tasks[_key]
+            tasks.pop(_key, None)
 
         @wraps(func)
         async def _wrapper(*args, **kwargs):
             _key = get_cache_key(func, _key_template, args, kwargs)
             if _key in tasks:
-                return await tasks[_key]
+                result = await tasks[_key]
+                if is_streaming(result):
+                    # Streaming results can't be shared - create new task for this caller
+                    task = asyncio.create_task(func(*args, **kwargs))
+                    return await task
+                return result
             task = asyncio.create_task(func(*args, **kwargs))
             tasks[_key] = task
             task.add_done_callback(partial(done_callback, _key))
-            return await task
+            result = await task
+            # Remove streaming results from cache immediately
+            if is_streaming(result) and _key in tasks and tasks[_key] is task:
+                del tasks[_key]
+            return result
 
         return _wrapper  # type: ignore[return-value]
 

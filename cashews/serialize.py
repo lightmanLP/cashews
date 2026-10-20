@@ -217,6 +217,16 @@ class DecodeError(Exception):
 
 register_type = Serializer.register_type
 
+_streaming_types: set[type] = set()
+
+
+def register_streaming_type(klass: type) -> None:
+    _streaming_types.add(klass)
+
+
+def is_streaming(value) -> bool:
+    return any(isinstance(value, t) for t in _streaming_types)
+
 
 async def bytes_encoder(value: bytes, *args, **kwargs):
     return value
